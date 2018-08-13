@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
@@ -36,6 +37,7 @@ import java.util.Date;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.Set;
+import java.util.Base64.Encoder;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.namespace.QName;
@@ -119,6 +121,21 @@ public class SignatureTest {
 		loadAndStore(password, clientPair, clientCert, OUR_FAKE_CLIENT_CERT);
 		DigitalSignature.reload();
 		Assert.assertTrue(DigitalSignature.validateKeyChain(clientCert).equals(caCert) );
+	}
+	@Test //@org.junit.Ignore("only needed once")
+	public void createSelfSigned() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException, KeyStoreException, URISyntaxException {
+		char[] password = PASSWORD_CHAR_ARRAY;
+		KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA",bcProvider);
+		KeyPair keyPair = gen.generateKeyPair();
+		String dn = "C=NL, ST=NoordHolland, O=CS, OU=CTC, CN=our.fake.cert";
+		X509Certificate selfsigCert = sign(keyPair, dn, dn, keyPair.getPublic(), false );
+		loadAndStore(password, keyPair, selfsigCert, "our.fake.cert");
+		FileWriter  out =  new FileWriter ("src/test/resources/self-signed.cert");
+		Encoder encoder = Base64.getMimeEncoder(64, System.getProperty("line.separator").getBytes() );
+		out.write("-----BEGIN CERTIFICATE-----\n");
+		out.write(encoder.encodeToString(selfsigCert.getEncoded()) );
+		out.write("\n-----END CERTIFICATE-----");
+		out.close();
 	}
 	
 	@Test
