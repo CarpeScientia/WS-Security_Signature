@@ -11,8 +11,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
@@ -30,6 +33,13 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.RSAKey;
+import java.security.interfaces.RSAPrivateCrtKey;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.RSAPrivateCrtKeySpec;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.Collection;
@@ -268,5 +278,79 @@ public class SignatureTest {
 			ks.load(in, PASSWORD_CHAR_ARRAY);
 		}
 		return ks;
+	}
+	//private key conversion openssl pkcs8 -topk8 -inform PEM -outform DER -in ./pem.key  -nocrypt > pkcs8.key
+	//@Test
+	public void storePrivateKeyFromFile() throws Exception {
+		PKCS8EncodedKeySpec privSpec = new PKCS8EncodedKeySpec(Files.readAllBytes( Paths.get("src/test/resources/pkcs8.key")) );
+		
+		RSAPrivateKey privateKey = (RSAPrivateKey) KeyFactory.getInstance("RSA").generatePrivate(privSpec);
+		X509Certificate signingCert;
+		try(FileInputStream inStream = new FileInputStream("src/test/resources/test.crt") ){
+		signingCert = (X509Certificate) CertificateFactory.getInstance("X509").generateCertificate(
+				 inStream);
+		}
+		KeyPair pair = new KeyPair(signingCert.getPublicKey(), privateKey);
+		
+		RSAPublicKey rsaPublic = (RSAPublicKey) signingCert.getPublicKey();
+		Assert.assertEquals(rsaPublic.getModulus(), privateKey.getModulus() ); 
+		
+		@SuppressWarnings("restriction")
+		RSAKey RSAPrivKey = sun.security.rsa.RSAKeyFactory.toRSAKey(privateKey);
+		Assert.assertEquals(rsaPublic.getPublicExponent(), ((RSAPrivateCrtKey)privateKey).getPublicExponent() );
+		Assert.assertEquals(rsaPublic.getPublicExponent(), ((RSAPrivateCrtKey)RSAPrivKey).getPublicExponent() );
+		
+		loadAndStore("changeit".toCharArray(), pair, signingCert, "newKeypair");
+	}
+	
+	/**
+	 * Find a factor of n by following the algorithm outlined in Handbook of Applied Cryptography, section
+	 * 8.2.2(i). See http://cacr.uwaterloo.ca/hac/about/chap8.pdf.
+	 *
+	 */
+
+	private static BigInteger findFactor(BigInteger e, BigInteger d, BigInteger n) {
+	    BigInteger edMinus1 = e.multiply(d).subtract(BigInteger.ONE);
+	    int s = edMinus1.getLowestSetBit();
+	    BigInteger t = edMinus1.shiftRight(s);
+
+	    for (int aInt = 2; true; aInt++) {
+	        BigInteger aPow = BigInteger.valueOf(aInt).modPow(t, n);
+	        for (int i = 1; i <= s; i++) {
+	            if (aPow.equals(BigInteger.ONE)) {
+	                break;
+	            }
+	            if (aPow.equals(n.subtract(BigInteger.ONE))) {
+	                break;
+	            }
+	            BigInteger aPowSquared = aPow.multiply(aPow).mod(n);
+	            if (aPowSquared.equals(BigInteger.ONE)) {
+	                return aPow.subtract(BigInteger.ONE).gcd(n);
+	            }
+	            aPow = aPowSquared;
+	        }
+	    }
+
+	}
+
+	public static RSAPrivateCrtKey createCrtKey(RSAPublicKey rsaPub, RSAPrivateKey rsaPriv) throws NoSuchAlgorithmException, InvalidKeySpecException {
+
+	    BigInteger e = rsaPub.getPublicExponent();
+	    BigInteger d = rsaPriv.getPrivateExponent();
+	    BigInteger n = rsaPub.getModulus();
+	    BigInteger p = findFactor(e, d, n);
+	    BigInteger q = n.divide(p);
+	    if (p.compareTo(q) > 0) {
+	        BigInteger t = p;
+	        p = q;
+	        q = t;
+	    }
+	    BigInteger exp1 = d.mod(p.subtract(BigInteger.ONE));
+	    BigInteger exp2 = d.mod(q.subtract(BigInteger.ONE));
+	    BigInteger coeff = q.modInverse(p);
+	    RSAPrivateCrtKeySpec keySpec = new RSAPrivateCrtKeySpec(n, e, d, p, q, exp1, exp2, coeff);
+	    KeyFactory kf = KeyFactory.getInstance("RSA");
+	    return (RSAPrivateCrtKey) kf.generatePrivate(keySpec);
+
 	}
 }
